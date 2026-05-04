@@ -54,6 +54,7 @@ services:
     volumes:
       - ./nifi/flow/migration-flow.xml:/opt/nifi/nifi-current/conf/flow.xml
       - nifi_data:/opt/nifi/nifi-current/conf
+      - ./data:/data
 
   java-service:
     build:
