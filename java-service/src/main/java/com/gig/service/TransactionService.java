@@ -55,26 +55,25 @@ public class TransactionService {
     public int loadFromCsv(String filePath) throws Exception {
         int count = 0;
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            reader.readLine(); // skip header: transaction_id,account_id,amount,currency,timestamp,status,description
+            reader.readLine(); // skip header
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
                 if (line.isEmpty()) continue;
-                String[] f = line.split(",", -1);
-                if (f.length < 6) continue;
+                String[] fields = line.split(",", -1);
+                if (fields.length < 6) continue;
 
                 Map<String, Object> msg = new LinkedHashMap<>();
-                msg.put("transaction_id", f[0].trim());
-                msg.put("account_id", f[1].trim());
-                msg.put("amount", f[2].trim());
-                msg.put("currency", f[3].trim());
-                msg.put("timestamp", f[4].trim());
-                msg.put("status", f[5].trim());
-                if (f.length > 6) msg.put("description", f[6].trim());
+                msg.put("transaction_id", fields[0].trim());
+                msg.put("account_id", fields[1].trim());
+                msg.put("amount", fields[2].trim());
+                msg.put("currency", fields[3].trim());
+                msg.put("timestamp", fields[4].trim());
+                msg.put("status", fields[5].trim());
+                if (fields.length > 6) msg.put("description", fields[6].trim());
 
                 transactionProducer.sendTransaction(objectMapper.writeValueAsString(msg));
                 count++;
-                log.info("Published CSV row {} to Kafka", f[0].trim());
             }
         }
         log.info("Loaded {} transactions from CSV: {}", count, filePath);

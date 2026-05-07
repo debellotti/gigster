@@ -6,19 +6,8 @@ import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
 
-/**
- * Transaction Repository - Data Access Layer
- */
 @Repository
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
-    /**
-     * Placeholder: Find transaction by ID
-     */
     Optional<Transaction> findByTransactionId(String transactionId);
-
-    /**
-     * Placeholder: Find transactions by user
-     */
-    // TODO: Implement query methods
 }

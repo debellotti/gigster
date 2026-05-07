@@ -29,7 +29,6 @@ public class TransactionConsumer {
     @KafkaListener(topics = "transactions-topic", groupId = "gig-consumer-group")
     public void consumeProcessedTransaction(String message) {
         try {
-            log.debug("Received message: {}", message);
             JsonNode node = objectMapper.readTree(message);
 
             String transactionId = getField(node, "transaction_id");
@@ -52,14 +51,9 @@ public class TransactionConsumer {
                 return;
             }
 
-            // Duplicate handling — keep highest amount
             Optional<Transaction> existing = transactionRepository.findByTransactionId(transactionId);
             if (existing.isPresent()) {
-                if (amount.compareTo(existing.get().getAmount()) <= 0) {
-                    log.info("Skipping duplicate transaction {} — existing amount is higher", transactionId);
-                    return;
-                }
-                log.info("Updating transaction {} with higher amount {}", transactionId, amount);
+                if (amount.compareTo(existing.get().getAmount()) <= 0) return;
                 transactionRepository.delete(existing.get());
             }
 

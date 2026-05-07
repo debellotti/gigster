@@ -1,23 +1,6 @@
 #!/usr/bin/env python3
-"""
-Configures the NiFi Phase 2 ingestion and transformation flow via the NiFi REST API.
-
-Flow:
-  GetFile (/app/data/transactions.csv)
-    → SplitText (one line per flowfile)
-    → RouteOnContent: skip CSV header
-    → RouteOnContent: detect malformed rows (INVALID_AMT, empty fields, ERR currency)
-        ├── malformed → LogMessage (error bulletin)
-        └── valid → ReplaceText (CSV line → JSON)
-                      → PublishKafka (transactions-topic)
-
-Usage:
-  python3 scripts/setup-nifi-flow.py
-
-Prerequisites:
-  pip install requests
-  NiFi must be running on https://localhost:8161
-"""
+# Builds the NiFi ingestion flow via REST API.
+# Requires: pip install requests  |  NiFi running on https://localhost:8161
 
 import json
 import os
