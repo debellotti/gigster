@@ -84,7 +84,7 @@ class DataReconciliator:
     def query_db(self):
         self.cursor.execute("""
             SELECT transaction_id, amount, currency
-            FROM gig.transactions_source
+            FROM gig.transactions_migrated
             ORDER BY transaction_id
         """)
         return self.cursor.fetchall()

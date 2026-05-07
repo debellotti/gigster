@@ -13,8 +13,8 @@ CREATE TABLE gig.accounts (
     updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Transactions source table (populated by Kafka consumer from NiFi pipeline)
-CREATE TABLE gig.transactions_source (
+-- Migrated transactions table (populated by Kafka consumer from NiFi pipeline)
+CREATE TABLE gig.transactions_migrated (
     id             BIGSERIAL PRIMARY KEY,
     transaction_id VARCHAR(255) UNIQUE NOT NULL,
     account_id     VARCHAR(255) NOT NULL,
@@ -27,8 +27,8 @@ CREATE TABLE gig.transactions_source (
     updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_source_transaction_id ON gig.transactions_source(transaction_id);
-CREATE INDEX idx_source_account_id     ON gig.transactions_source(account_id);
+CREATE INDEX idx_migrated_transaction_id ON gig.transactions_migrated(transaction_id);
+CREATE INDEX idx_migrated_account_id     ON gig.transactions_migrated(account_id);
 CREATE INDEX idx_accounts_account_id   ON gig.accounts(account_id);
 
 GRANT ALL PRIVILEGES ON SCHEMA gig TO gig_user;

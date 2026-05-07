@@ -20,6 +20,7 @@ Prerequisites:
 """
 
 import json
+import os
 import sys
 import time
 
@@ -28,7 +29,7 @@ import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-NIFI_BASE = "https://localhost:8161/nifi-api"
+NIFI_BASE = os.environ.get("NIFI_BASE", "https://localhost:8161/nifi-api")
 USERNAME = "admin"
 PASSWORD = "admin123456789"
 
@@ -50,7 +51,7 @@ MALFORMED_PATTERN = r"(^,|,,|INVALID_AMT|,ERR,)"
 HEADER_PATTERN = r"^transaction_id,"
 
 
-def wait_for_nifi(timeout=120):
+def wait_for_nifi(timeout=300):
     print("[0/8] Waiting for NiFi to be ready...", end="", flush=True)
     deadline = time.time() + timeout
     while time.time() < deadline:
