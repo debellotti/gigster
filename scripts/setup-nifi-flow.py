@@ -19,7 +19,7 @@ PASSWORD = "admin123456789"
 KAFKA_BOOTSTRAP = "kafka:29092"
 OUTPUT_TOPIC = "transactions-topic"
 CSV_DIR = "/app/data"
-CSV_FILTER = "transactions\\.csv"
+CSV_FILTER = "transactions.*\\.csv"
 
 # Converts a single CSV data line to JSON.
 # Input:  550e8400-...,GIG-USR-001,150.00,EUR,2024-03-25T10:00:00Z,SUCCESS
@@ -423,7 +423,7 @@ def main():
     print("                                                              ├── retry (<3) → ReplaceText        ├── retry (<3) → PublishKafka")
     print("                                                              └── unmatched  → LogMessage         └── unmatched  → LogMessage")
     print()
-    print(f"  CSV input : {CSV_DIR}/transactions.csv")
+    print(f"  CSV input : {CSV_DIR}/transactions*.csv")
     print(f"  Kafka out : {OUTPUT_TOPIC}")
     print()
     print(f"  NiFi UI   : https://localhost:8161/nifi")
