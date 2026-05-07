@@ -308,6 +308,26 @@ def main():
         x=700, y=500
     )
 
+    # Retry loop for ReplaceText failures
+    retry_transform_count = create_processor(
+        token, root_id,
+        "org.apache.nifi.processors.attributes.UpdateAttribute",
+        "Increment transform retry count",
+        {"transform.retry.count": "${transform.retry.count:plus(1)}"},
+        x=700, y=680
+    )
+
+    retry_transform_route = create_processor(
+        token, root_id,
+        "org.apache.nifi.processors.standard.RouteOnAttribute",
+        "Route transform retry",
+        {
+            "Routing Strategy": "Route to Property name",
+            "retry": "${transform.retry.count:lt(3)}",
+        },
+        x=700, y=820
+    )
+
     publish = create_processor(
         token, root_id,
         "org.apache.nifi.kafka.processors.PublishKafka",
@@ -319,23 +339,59 @@ def main():
         x=1000, y=500
     )
 
-    print(f"      GetFile:           {get_file['id']}")
-    print(f"      SplitText:         {split['id']}")
-    print(f"      RouteOnContent(h): {route_header['id']}")
-    print(f"      RouteOnContent(v): {route_validate['id']}")
-    print(f"      LogMessage:        {log_invalid['id']}")
-    print(f"      ReplaceText:       {replace['id']}")
-    print(f"      PublishKafka:      {publish['id']}")
+    # Retry loop for PublishKafka failures
+    retry_kafka_count = create_processor(
+        token, root_id,
+        "org.apache.nifi.processors.attributes.UpdateAttribute",
+        "Increment kafka retry count",
+        {"kafka.retry.count": "${kafka.retry.count:plus(1)}"},
+        x=1000, y=680
+    )
+
+    retry_kafka_route = create_processor(
+        token, root_id,
+        "org.apache.nifi.processors.standard.RouteOnAttribute",
+        "Route kafka retry",
+        {
+            "Routing Strategy": "Route to Property name",
+            "retry": "${kafka.retry.count:lt(3)}",
+        },
+        x=1000, y=820
+    )
+
+    print(f"      GetFile:                  {get_file['id']}")
+    print(f"      SplitText:                {split['id']}")
+    print(f"      RouteOnContent(header):   {route_header['id']}")
+    print(f"      RouteOnContent(validate): {route_validate['id']}")
+    print(f"      LogMessage:               {log_invalid['id']}")
+    print(f"      ReplaceText:              {replace['id']}")
+    print(f"      UpdateAttr(transform):    {retry_transform_count['id']}")
+    print(f"      RouteOnAttr(transform):   {retry_transform_route['id']}")
+    print(f"      PublishKafka:             {publish['id']}")
+    print(f"      UpdateAttr(kafka):        {retry_kafka_count['id']}")
+    print(f"      RouteOnAttr(kafka):       {retry_kafka_route['id']}")
 
     print("[5/8] Connecting processors...")
-    connect(token, root_id, get_file["id"],       split["id"],          "success")
-    connect(token, root_id, split["id"],           route_header["id"],   "splits")
-    connect(token, root_id, route_header["id"],    log_invalid["id"],    "header")
-    connect(token, root_id, route_header["id"],    route_validate["id"], "unmatched")
-    connect(token, root_id, route_validate["id"],  log_invalid["id"],    "malformed")
-    connect(token, root_id, route_validate["id"],  replace["id"],        "unmatched")
-    connect(token, root_id, replace["id"],         publish["id"],        "success")
-    connect(token, root_id, replace["id"],         log_invalid["id"],    "failure")
+    connect(token, root_id, get_file["id"],             split["id"],                "success")
+    connect(token, root_id, split["id"],                route_header["id"],         "splits")
+    connect(token, root_id, route_header["id"],         log_invalid["id"],          "header")
+    connect(token, root_id, route_header["id"],         route_validate["id"],       "unmatched")
+    connect(token, root_id, route_validate["id"],       log_invalid["id"],          "malformed")
+    connect(token, root_id, route_validate["id"],       replace["id"],              "unmatched")
+
+    # ReplaceText → success → PublishKafka
+    connect(token, root_id, replace["id"],              publish["id"],              "success")
+    # ReplaceText → failure → retry loop
+    connect(token, root_id, replace["id"],              retry_transform_count["id"], "failure")
+    connect(token, root_id, retry_transform_count["id"], retry_transform_route["id"], "success")
+    connect(token, root_id, retry_transform_route["id"], replace["id"],             "retry")
+    connect(token, root_id, retry_transform_route["id"], log_invalid["id"],         "unmatched")
+
+    # PublishKafka → failure → retry loop
+    connect(token, root_id, publish["id"],              retry_kafka_count["id"],    "failure")
+    connect(token, root_id, retry_kafka_count["id"],    retry_kafka_route["id"],    "success")
+    connect(token, root_id, retry_kafka_route["id"],    publish["id"],              "retry")
+    connect(token, root_id, retry_kafka_route["id"],    log_invalid["id"],          "unmatched")
 
     print("[6/8] Configuring auto-terminate relationships...")
 
@@ -346,13 +402,26 @@ def main():
     set_auto_terminate(token, log_invalid["id"], log_rels)
 
     publish_rels = get_relationships(token, publish["id"])
-    set_auto_terminate(token, publish["id"], publish_rels)
+    set_auto_terminate(token, publish["id"], [r for r in publish_rels if r not in ("failure",)])
+
+    retry_transform_route_rels = get_relationships(token, retry_transform_route["id"])
+    set_auto_terminate(token, retry_transform_route["id"],
+                       [r for r in retry_transform_route_rels if r not in ("retry", "unmatched")])
+
+    retry_kafka_route_rels = get_relationships(token, retry_kafka_route["id"])
+    set_auto_terminate(token, retry_kafka_route["id"],
+                       [r for r in retry_kafka_route_rels if r not in ("retry", "unmatched")])
 
     print("[7/8] Starting processors...")
     for proc, name in [
         (get_file, "GetFile"), (split, "SplitText"),
         (route_header, "RouteOnContent(header)"), (route_validate, "RouteOnContent(validate)"),
-        (log_invalid, "LogMessage"), (replace, "ReplaceText"), (publish, "PublishKafka")
+        (log_invalid, "LogMessage"), (replace, "ReplaceText"),
+        (retry_transform_count, "UpdateAttribute(transform)"),
+        (retry_transform_route, "RouteOnAttribute(transform)"),
+        (publish, "PublishKafka"),
+        (retry_kafka_count, "UpdateAttribute(kafka)"),
+        (retry_kafka_route, "RouteOnAttribute(kafka)"),
     ]:
         start_processor(token, proc["id"])
         print(f"      Started {name}")
@@ -365,7 +434,10 @@ def main():
     print("  GetFile → SplitText → RouteOnContent(header skip)")
     print("                      → RouteOnContent(malformed detect)")
     print("                          ├── malformed → LogMessage")
-    print("                          └── valid → ReplaceText → PublishKafka")
+    print("                          └── valid → ReplaceText ──── success ──→ PublishKafka ──── success (auto)")
+    print("                                           └── failure → UpdateAttr → RouteOnAttr       └── failure → UpdateAttr → RouteOnAttr")
+    print("                                                              ├── retry (<3) → ReplaceText        ├── retry (<3) → PublishKafka")
+    print("                                                              └── unmatched  → LogMessage         └── unmatched  → LogMessage")
     print()
     print(f"  CSV input : {CSV_DIR}/transactions.csv")
     print(f"  Kafka out : {OUTPUT_TOPIC}")
