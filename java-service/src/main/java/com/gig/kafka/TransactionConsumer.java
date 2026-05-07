@@ -26,7 +26,7 @@ public class TransactionConsumer {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @KafkaListener(topics = "transactions-topic", groupId = "gig-consumer-group")
+    @KafkaListener(topics = "${app.kafka.topic}", groupId = "gig-consumer-group")
     public void consumeProcessedTransaction(String message) {
         try {
             JsonNode node = objectMapper.readTree(message);

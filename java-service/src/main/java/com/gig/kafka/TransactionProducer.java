@@ -1,12 +1,14 @@
 package com.gig.kafka;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
 @Component
 public class TransactionProducer {
 
-    private static final String RAW_TOPIC = "transactions-topic";
+    @Value("${app.kafka.topic}")
+    private String topic;
 
     private final KafkaTemplate<String, String> kafkaTemplate;
 
@@ -15,6 +17,6 @@ public class TransactionProducer {
     }
 
     public void sendTransaction(String messageJson) {
-        kafkaTemplate.send(RAW_TOPIC, messageJson);
+        kafkaTemplate.send(topic, messageJson);
     }
 }

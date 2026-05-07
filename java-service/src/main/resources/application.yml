@@ -28,6 +28,12 @@ spring:
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       auto-offset-reset: earliest
 
+app:
+  kafka:
+    topic: transactions-topic
+    partitions: 1
+    replicas: 1
+
 server:
   port: 8080
   servlet:
