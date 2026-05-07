@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
 Reconciliation Script - Phase 3 Data Validation
-Validates data integrity between source and target tables
+Compares the source CSV against the destination database and outputs
+a report: total source records, successfully migrated, failed/skipped,
+and total financial value.
 """
 
+import csv
 import sys
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
+
+CSV_PATH = "data/transactions.csv"
 
 
 class DataReconciliator:
 
-    def __init__(self, host='localhost', port=5432, user='gig_user', password='gig_password', database='gig_db'):
+    def __init__(self, host="localhost", port=5432, user="gig_user",
+                 password="gig_password", database="gig_db"):
         self.host = host
         self.port = port
         self.user = user
@@ -20,18 +28,13 @@ class DataReconciliator:
         self.database = database
         self.connection = None
         self.cursor = None
-        self.results = {}
 
     def connect(self):
         self.connection = psycopg2.connect(
-            host=self.host,
-            port=self.port,
-            user=self.user,
-            password=self.password,
-            database=self.database
+            host=self.host, port=self.port, user=self.user,
+            password=self.password, database=self.database
         )
         self.cursor = self.connection.cursor(cursor_factory=RealDictCursor)
-        print(f"Connected to {self.database} at {self.host}:{self.port}")
 
     def disconnect(self):
         if self.cursor:
@@ -39,128 +42,132 @@ class DataReconciliator:
         if self.connection:
             self.connection.close()
 
-    def validate_record_count(self):
-        self.cursor.execute("SELECT COUNT(*) AS cnt FROM gig.transactions_source")
-        source_count = self.cursor.fetchone()['cnt']
+    def parse_csv(self):
+        """Read CSV and classify each row as valid, duplicate, or malformed."""
+        all_rows = []
+        try:
+            with open(CSV_PATH, newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    all_rows.append(row)
+        except FileNotFoundError:
+            print(f"  WARNING: CSV not found at {CSV_PATH} — skipping source analysis")
+            return [], [], []
 
-        self.cursor.execute("SELECT COUNT(*) AS cnt FROM gig.transactions_target")
-        target_count = self.cursor.fetchone()['cnt']
+        valid = {}      # transaction_id → row (highest amount wins)
+        malformed = []  # rows that can't be parsed
 
-        match = source_count == target_count
-        self.results['record_count'] = {
-            'source': source_count,
-            'target': target_count,
-            'match': match
-        }
+        for row in all_rows:
+            tid = row.get("transaction_id", "").strip()
+            aid = row.get("account_id", "").strip()
+            amt = row.get("amount", "").strip()
 
-        status = "PASS" if match else "FAIL"
-        print(f"  [{status}] Record count — source: {source_count}, target: {target_count}")
-        return match
+            # Detect malformed rows
+            if not tid or not aid:
+                malformed.append({"reason": "missing transaction_id or account_id", "row": row})
+                continue
+            try:
+                amount = Decimal(amt)
+            except InvalidOperation:
+                malformed.append({"reason": f"invalid amount '{amt}'", "row": row})
+                continue
 
-    def validate_data_integrity(self):
-        issues = []
+            # Duplicate resolution: keep highest amount
+            if tid in valid:
+                if amount > valid[tid]["_amount"]:
+                    valid[tid] = {**row, "_amount": amount}
+            else:
+                valid[tid] = {**row, "_amount": amount}
 
+        return all_rows, list(valid.values()), malformed
+
+    def query_db(self):
         self.cursor.execute("""
-            SELECT COUNT(*) AS cnt FROM gig.transactions_source
-            WHERE transaction_id IS NULL OR user_id IS NULL OR amount IS NULL
-               OR currency IS NULL OR transaction_date IS NULL OR status IS NULL
+            SELECT transaction_id, amount, currency
+            FROM gig.transactions_source
+            ORDER BY transaction_id
         """)
-        source_nulls = self.cursor.fetchone()['cnt']
-
-        self.cursor.execute("""
-            SELECT COUNT(*) AS cnt FROM gig.transactions_target
-            WHERE transaction_id IS NULL OR user_id IS NULL OR amount IS NULL
-               OR currency IS NULL OR transaction_date IS NULL OR status IS NULL
-        """)
-        target_nulls = self.cursor.fetchone()['cnt']
-
-        if source_nulls > 0:
-            issues.append(f"source has {source_nulls} rows with NULL required fields")
-        if target_nulls > 0:
-            issues.append(f"target has {target_nulls} rows with NULL required fields")
-
-        self.cursor.execute("SELECT COUNT(*) AS cnt FROM gig.transactions_source WHERE amount < 0")
-        neg_amounts = self.cursor.fetchone()['cnt']
-        if neg_amounts > 0:
-            issues.append(f"source has {neg_amounts} rows with negative amount")
-
-        self.results['data_integrity'] = {'issues': issues, 'pass': len(issues) == 0}
-        status = "PASS" if not issues else "FAIL"
-        print(f"  [{status}] Data integrity — {len(issues)} issue(s)")
-        for issue in issues:
-            print(f"           * {issue}")
-        return len(issues) == 0
-
-    def validate_reconciliation(self):
-        self.cursor.execute("""
-            SELECT s.transaction_id,
-                   s.amount AS source_amount, t.amount AS target_amount,
-                   s.status  AS source_status,  t.status  AS target_status
-            FROM gig.transactions_source s
-            JOIN gig.transactions_target t USING (transaction_id)
-            WHERE s.amount <> t.amount OR s.status <> t.status
-        """)
-        mismatches = self.cursor.fetchall()
-
-        self.cursor.execute("""
-            SELECT transaction_id FROM gig.transactions_source
-            WHERE transaction_id NOT IN (SELECT transaction_id FROM gig.transactions_target)
-        """)
-        missing_in_target = [r['transaction_id'] for r in self.cursor.fetchall()]
-
-        self.cursor.execute("""
-            SELECT transaction_id FROM gig.transactions_target
-            WHERE transaction_id NOT IN (SELECT transaction_id FROM gig.transactions_source)
-        """)
-        missing_in_source = [r['transaction_id'] for r in self.cursor.fetchall()]
-
-        self.results['reconciliation'] = {
-            'mismatches': len(mismatches),
-            'missing_in_target': missing_in_target,
-            'missing_in_source': missing_in_source,
-            'pass': len(mismatches) == 0 and not missing_in_target and not missing_in_source
-        }
-
-        passed = self.results['reconciliation']['pass']
-        status = "PASS" if passed else "FAIL"
-        print(f"  [{status}] Reconciliation — {len(mismatches)} amount/status mismatch(es), "
-              f"{len(missing_in_target)} missing in target, {len(missing_in_source)} missing in source")
-        for m in mismatches:
-            print(f"           * {m['transaction_id']}: amount {m['source_amount']} vs {m['target_amount']}, "
-                  f"status {m['source_status']} vs {m['target_status']}")
-        return passed
-
-    def generate_report(self):
-        passed = sum(1 for v in self.results.values()
-                     if isinstance(v, dict) and v.get('pass', v.get('match', False)))
-        total = len(self.results)
-
-        print()
-        print("=" * 50)
-        print("RECONCILIATION REPORT")
-        print("=" * 50)
-        print(f"  Source records : {self.results.get('record_count', {}).get('source', 'N/A')}")
-        print(f"  Target records : {self.results.get('record_count', {}).get('target', 'N/A')}")
-        print(f"  Checks passed  : {passed}/{total}")
-        overall = passed == total
-        print(f"  Overall result : {'PASS' if overall else 'FAIL'}")
-        print("=" * 50)
-        return overall
+        return self.cursor.fetchall()
 
     def run(self):
-        print("Starting Phase 3 Reconciliation...")
-        print(f"Timestamp: {datetime.now()}")
+        print("=" * 55)
+        print("  Phase 3 — Migration Reconciliation Report")
+        print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 55)
         print()
 
         try:
             self.connect()
-            print("Running checks:")
-            self.validate_record_count()
-            self.validate_data_integrity()
-            self.validate_reconciliation()
-            overall = self.generate_report()
-            if not overall:
+
+            all_rows, valid_rows, malformed_rows = self.parse_csv()
+            db_rows = self.query_db()
+
+            total_source = len(all_rows)
+            total_malformed = len(malformed_rows)
+            # Rows that are valid in CSV but lost to duplicate resolution
+            total_valid_unique = len(valid_rows)
+            total_duplicate_discarded = total_source - total_malformed - total_valid_unique
+
+            total_in_db = len(db_rows)
+            db_ids = {r["transaction_id"] for r in db_rows}
+            valid_ids = {r["transaction_id"] for r in valid_rows}
+
+            not_migrated = valid_ids - db_ids       # should have been migrated but aren't
+            extra_in_db = db_ids - valid_ids        # in DB but not in valid CSV
+
+            # Financial value: sum of amounts in DB
+            total_value_by_currency = {}
+            for r in db_rows:
+                cur = r["currency"]
+                total_value_by_currency[cur] = total_value_by_currency.get(cur, Decimal("0")) + r["amount"]
+
+            # Print source analysis
+            print("SOURCE (CSV)")
+            print(f"  Total rows              : {total_source}")
+            print(f"  Malformed / skipped     : {total_malformed}")
+            for m in malformed_rows:
+                tid = m['row'].get('transaction_id', '(empty)') or '(empty)'
+                print(f"    - {tid}: {m['reason']}")
+            print(f"  Duplicate rows resolved : {total_duplicate_discarded}")
+            print(f"  Unique valid records    : {total_valid_unique}")
+            print()
+
+            print("DESTINATION (Database)")
+            print(f"  Records in DB           : {total_in_db}")
+            print(f"  Not migrated            : {len(not_migrated)}")
+            if not_migrated:
+                for tid in sorted(not_migrated):
+                    print(f"    - {tid}")
+            print(f"  Unexpected in DB        : {len(extra_in_db)}")
+            print()
+
+            print("FINANCIAL VALUE (persisted)")
+            for cur, total in sorted(total_value_by_currency.items()):
+                print(f"  {cur}: {total:,.2f}")
+            print()
+
+            # Summary
+            successfully_migrated = len(db_ids & valid_ids)
+            failed_skipped = total_malformed + len(not_migrated)
+
+            print("=" * 55)
+            print("SUMMARY")
+            print(f"  Total Source Records    : {total_source}")
+            print(f"  Successfully Migrated   : {successfully_migrated}")
+            print(f"  Failed / Skipped        : {failed_skipped}  "
+                  f"({total_malformed} malformed, {len(not_migrated)} not in DB)")
+            print(f"  Duplicate rows resolved : {total_duplicate_discarded} (kept highest amount)")
+            total_all = sum(total_value_by_currency.values())
+            print(f"  Total Financial Value   : {total_all:,.2f} (mixed currencies)")
+            print()
+            overall_pass = (successfully_migrated == total_valid_unique and
+                            len(not_migrated) == 0 and len(extra_in_db) == 0)
+            print(f"  Overall result          : {'PASS' if overall_pass else 'FAIL'}")
+            print("=" * 55)
+
+            if not overall_pass:
                 sys.exit(1)
+
         except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)
@@ -169,5 +176,4 @@ class DataReconciliator:
 
 
 if __name__ == "__main__":
-    reconciliator = DataReconciliator()
-    reconciliator.run()
+    DataReconciliator().run()
