@@ -123,15 +123,34 @@ Overall result : PASS
 
 ---
 
-## Reset / clean start
+## Reset and retest from scratch
 
-To wipe everything and start fresh (drops DB volumes):
+After the first run, use this sequence to wipe everything and go through the pipeline again from zero.
 
 ```bash
+# 1. Tear down all containers and delete DB volumes
 docker-compose down -v
-```
 
-Then repeat from Step 1.
+# 2. Start infrastructure again
+docker-compose up -d postgres kafka zookeeper
+
+# 3. Wait ~15s, then build and start the Java service
+#    (subsequent builds are faster since Docker caches the Maven layer)
+docker-compose up -d --build java-service
+
+# 4. Wait until the service is up
+until curl -s http://localhost:8080/api/transactions/health | grep -q running; do sleep 3; done
+
+# 5. Trigger the pipeline
+curl -X POST http://localhost:8080/api/transactions/load-csv
+
+# 6. Wait a few seconds, then verify
+sleep 5
+curl http://localhost:8080/api/transactions | jq .
+
+# 7. Run reconciliation
+python3 scripts/reconciliation.py
+```
 
 ---
 
