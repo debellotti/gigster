@@ -93,7 +93,7 @@
         "Kafka Key Attribute Encoding": "utf-8",
         "Record Metadata Strategy": "FROM_PROPERTIES",
         "Topic Name": "transactions-topic",
-        "Kafka Connection Service": "022c23d3-019e-1000-b2b0-a11b05d599f0",
+        "Kafka Connection Service": "03bf6f3a-019e-1000-b6ab-5e1161d3a62b",
         "Publish Strategy": "USE_VALUE",
         "Failure Strategy": "Route to Failure",
         "partitioner.class": "org.apache.kafka.clients.producer.internals.DefaultPartitioner",
@@ -135,16 +135,16 @@
     },
     {
       "from": "Skip header",
-      "to": "Log invalid rows",
+      "to": "Detect malformed rows",
       "on": [
-        "header"
+        "unmatched"
       ]
     },
     {
       "from": "Skip header",
-      "to": "Detect malformed rows",
+      "to": "Log invalid rows",
       "on": [
-        "unmatched"
+        "header"
       ]
     },
     {
@@ -184,16 +184,16 @@
     },
     {
       "from": "Route transform retry",
-      "to": "Log invalid rows",
+      "to": "CSV line to JSON",
       "on": [
-        "unmatched"
+        "retry"
       ]
     },
     {
       "from": "Route transform retry",
-      "to": "CSV line to JSON",
+      "to": "Log invalid rows",
       "on": [
-        "retry"
+        "unmatched"
       ]
     },
     {
