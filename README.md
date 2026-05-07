@@ -67,19 +67,19 @@ docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
 docker-compose up -d nifi
 ```
 
-NiFi takes about 60-90 seconds to fully start. Once it's up, run the setup script to create the transformation flow:
+Run the setup script — it waits for NiFi to be ready automatically (up to 2 minutes), then creates the transformation flow:
 
 ```bash
 pip install requests   # first time only
 python3 scripts/setup-nifi-flow.py
 ```
 
-The script creates three processors in NiFi via the REST API:
+The script creates three processors via the NiFi REST API:
 `ConsumeKafka → JoltTransformJSON → PublishKafka`
 
-You can view the flow in the NiFi UI at `https://localhost:8161/nifi` (username: `admin`, password: `admin123456789`). Accept the self-signed certificate warning.
-
-> **Note:** The NiFi credentials are fixed via `bin/nifi.sh set-single-user-credentials` on first setup. If you reset the `nifi/conf/` directory, run that command again before the setup script.
+Once it completes you can inspect the flow in the NiFi UI at `https://localhost:8161/nifi` (accept the self-signed certificate warning):
+- Username: `admin`
+- Password: `admin123456789`
 
 ### Step 3 — Build and start the Java service
 
@@ -207,23 +207,25 @@ docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
 ```
 ├── docker-compose.yml
 ├── data/
-│   └── transactions.csv          # 10 sample transactions
+│   └── transactions.csv              # 10 sample transactions
 ├── db/
-│   └── init.sql                  # schema: transactions_source + transactions_target
+│   └── init.sql                      # schema: transactions_source + transactions_target
 ├── java-service/
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/com/gig/
-│       ├── controller/           # REST endpoints
-│       ├── kafka/                # producer, consumer, NiFi transformer
-│       ├── model/                # Transaction, TransactionTarget
-│       ├── repository/           # JPA repos
-│       └── service/              # business logic, CSV loading
+│       ├── controller/               # REST endpoints
+│       ├── kafka/                    # producer, consumer, NiFi transformer
+│       ├── model/                    # Transaction, TransactionTarget
+│       ├── repository/               # JPA repos
+│       └── service/                  # business logic, CSV loading
 ├── scripts/
-│   ├── reconciliation.py         # Phase 3 validation
-│   └── verify-api.sh             # API smoke tests
+│   ├── setup-nifi-flow.py            # configures Phase 2 NiFi flow via REST API
+│   ├── reconciliation.py             # Phase 3 validation
+│   └── verify-api.sh                 # API smoke tests
 └── nifi/
-    └── flow/migration-flow.xml   # placeholder for a full NiFi flow
+    ├── conf/                         # NiFi configuration (flow, credentials, certs)
+    └── flow/migration-flow.xml       # original placeholder (superseded by setup script)
 ```
 
 ## Tech stack
@@ -231,6 +233,7 @@ docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
 | Component | Technology |
 |-----------|-----------|
 | REST API + pipeline | Java 17 / Spring Boot 3 |
+| Transformation | Apache NiFi 2.9 |
 | Messaging | Apache Kafka |
 | Database | PostgreSQL 15 |
 | Validation | Python 3 |

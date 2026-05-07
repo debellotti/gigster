@@ -212,9 +212,33 @@ def get_relationships(token, proc_id):
     return [r["name"] for r in resp.json().get("component", {}).get("relationships", [])]
 
 
+def wait_for_nifi(timeout=120):
+    print("[0/7] Waiting for NiFi to be ready...", end="", flush=True)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            resp = requests.post(
+                f"{NIFI_BASE}/access/token",
+                data={"username": USERNAME, "password": PASSWORD},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                verify=False, timeout=5
+            )
+            if resp.status_code == 201:
+                print(" ready.")
+                return
+        except Exception:
+            pass
+        print(".", end="", flush=True)
+        time.sleep(5)
+    print()
+    raise TimeoutError(f"NiFi did not become ready within {timeout}s")
+
+
 def main():
     print("Setting up NiFi Phase 2 transformation flow...")
     print()
+
+    wait_for_nifi()
 
     print("[1/7] Authenticating...")
     token = get_token()
