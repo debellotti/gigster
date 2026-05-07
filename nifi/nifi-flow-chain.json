@@ -1,0 +1,228 @@
+{
+  "description": "NiFi ingestion flow — GiG Migration Challenge",
+  "processors": [
+    {
+      "step": 1,
+      "name": "Read CSV file",
+      "type": "GetFile",
+      "properties": {
+        "Keep Source File": "true",
+        "Minimum File Age": "0 sec",
+        "Polling Interval": "3600 sec",
+        "Input Directory": "/app/data",
+        "Batch Size": "10",
+        "Minimum File Size": "0 B",
+        "Ignore Hidden Files": "true",
+        "Recurse Subdirectories": "true",
+        "File Filter": "transactions\\.csv"
+      }
+    },
+    {
+      "step": 2,
+      "name": "Split into lines",
+      "type": "SplitText",
+      "properties": {
+        "Remove Trailing Newlines": "true",
+        "Header Line Count": "0",
+        "Line Split Count": "1"
+      }
+    },
+    {
+      "step": 3,
+      "name": "Skip header",
+      "type": "RouteOnContent",
+      "properties": {
+        "Match Requirement": "content must match exactly",
+        "header": "^transaction_id,"
+      }
+    },
+    {
+      "step": 4,
+      "name": "Detect malformed rows",
+      "type": "RouteOnContent",
+      "properties": {
+        "Match Requirement": "content must contain match",
+        "malformed": "(^,|,,|INVALID_AMT|,ERR,)"
+      }
+    },
+    {
+      "step": 5,
+      "name": "Log invalid rows",
+      "type": "LogMessage",
+      "properties": {
+        "Log Message": "Malformed/header row skipped: ${filename}",
+        "Log Level": "warn"
+      }
+    },
+    {
+      "step": 6,
+      "name": "CSV line to JSON",
+      "type": "ReplaceText",
+      "properties": {
+        "Replacement Value": "{\"transaction_id\":\"$1\",\"account_id\":\"$2\",\"amount\":\"$3\",\"currency\":\"$4\",\"timestamp\":\"$5\",\"status\":\"$6\"}",
+        "Search Value": "^([^,\\r\\n]+),([^,\\r\\n]+),([^,\\r\\n]+),([^,\\r\\n]+),([^,\\r\\n]+),([^,\\r\\n\\s]+)\\s*$",
+        "Evaluation Mode": "Entire text",
+        "Line-by-Line Evaluation Mode": "All",
+        "Replacement Strategy": "Regex Replace"
+      }
+    },
+    {
+      "step": 7,
+      "name": "Increment transform retry count",
+      "type": "UpdateAttribute",
+      "properties": {
+        "transform.retry.count": "${transform.retry.count:plus(1)}"
+      }
+    },
+    {
+      "step": 8,
+      "name": "Route transform retry",
+      "type": "RouteOnAttribute",
+      "properties": {
+        "Routing Strategy": "Route to Property name",
+        "retry": "${transform.retry.count:lt(3)}"
+      }
+    },
+    {
+      "step": 9,
+      "name": "Publish to transactions-topic",
+      "type": "PublishKafka",
+      "properties": {
+        "compression.type": "none",
+        "acks": "all",
+        "Kafka Key Attribute Encoding": "utf-8",
+        "Record Metadata Strategy": "FROM_PROPERTIES",
+        "Topic Name": "transactions-topic",
+        "Kafka Connection Service": "022c23d3-019e-1000-b2b0-a11b05d599f0",
+        "Publish Strategy": "USE_VALUE",
+        "Failure Strategy": "Route to Failure",
+        "partitioner.class": "org.apache.kafka.clients.producer.internals.DefaultPartitioner",
+        "Transactions Enabled": "true"
+      }
+    },
+    {
+      "step": 10,
+      "name": "Increment kafka retry count",
+      "type": "UpdateAttribute",
+      "properties": {
+        "kafka.retry.count": "${kafka.retry.count:plus(1)}"
+      }
+    },
+    {
+      "step": 11,
+      "name": "Route kafka retry",
+      "type": "RouteOnAttribute",
+      "properties": {
+        "Routing Strategy": "Route to Property name",
+        "retry": "${kafka.retry.count:lt(3)}"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "Read CSV file",
+      "to": "Split into lines",
+      "on": [
+        "success"
+      ]
+    },
+    {
+      "from": "Split into lines",
+      "to": "Skip header",
+      "on": [
+        "splits"
+      ]
+    },
+    {
+      "from": "Skip header",
+      "to": "Log invalid rows",
+      "on": [
+        "header"
+      ]
+    },
+    {
+      "from": "Skip header",
+      "to": "Detect malformed rows",
+      "on": [
+        "unmatched"
+      ]
+    },
+    {
+      "from": "Detect malformed rows",
+      "to": "CSV line to JSON",
+      "on": [
+        "unmatched"
+      ]
+    },
+    {
+      "from": "Detect malformed rows",
+      "to": "Log invalid rows",
+      "on": [
+        "malformed"
+      ]
+    },
+    {
+      "from": "CSV line to JSON",
+      "to": "Increment transform retry count",
+      "on": [
+        "failure"
+      ]
+    },
+    {
+      "from": "CSV line to JSON",
+      "to": "Publish to transactions-topic",
+      "on": [
+        "success"
+      ]
+    },
+    {
+      "from": "Increment transform retry count",
+      "to": "Route transform retry",
+      "on": [
+        "success"
+      ]
+    },
+    {
+      "from": "Route transform retry",
+      "to": "Log invalid rows",
+      "on": [
+        "unmatched"
+      ]
+    },
+    {
+      "from": "Route transform retry",
+      "to": "CSV line to JSON",
+      "on": [
+        "retry"
+      ]
+    },
+    {
+      "from": "Publish to transactions-topic",
+      "to": "Increment kafka retry count",
+      "on": [
+        "failure"
+      ]
+    },
+    {
+      "from": "Increment kafka retry count",
+      "to": "Route kafka retry",
+      "on": [
+        "success"
+      ]
+    },
+    {
+      "from": "Route kafka retry",
+      "to": "Publish to transactions-topic",
+      "on": [
+        "retry"
+      ]
+    },
+    {
+      "from": "Route kafka retry",
+      "to": "Log invalid rows",
+      "on": [
+        "unmatched"
+      ]
+    }
+  ]
+}
