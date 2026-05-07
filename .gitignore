@@ -5,8 +5,7 @@ nifi/content_repository/
 nifi/provenance_repository/
 nifi/state/
 nifi/conf/archive/
-nifi/conf/keystore.p12
-nifi/conf/truststore.p12
+nifi/conf/logback.xml
 
 # Misc
 data/transactions_2.csv
