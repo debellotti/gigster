@@ -107,7 +107,6 @@ The NiFi flow is configured via `scripts/setup-nifi-flow.py` rather than a hand-
 
 - Docker & Docker Compose
 - Python 3 with `pip install requests psycopg2-binary`
-- `jq` (for verify-api.sh)
 - Ports `8080`, `5432`, `9092`, `2181`, `8161` free
 
 ### Step 1 — Start infrastructure
