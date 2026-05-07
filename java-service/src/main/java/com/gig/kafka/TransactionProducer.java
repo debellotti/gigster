@@ -1,27 +1,29 @@
 package com.gig.kafka;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
-/**
- * Kafka Producer for Transaction Events
- * Publishes transactions to Kafka topic for Phase 2 consumption
- */
 @Component
 public class TransactionProducer {
 
-    private final KafkaTemplate<String, Object> kafkaTemplate;
-    private static final String TOPIC = "transactions-topic";
+    private static final Logger log = LoggerFactory.getLogger(TransactionProducer.class);
+    private static final String RAW_TOPIC = "transactions-topic";
 
-    public TransactionProducer(KafkaTemplate<String, Object> kafkaTemplate) {
+    private final KafkaTemplate<String, String> kafkaTemplate;
+
+    public TransactionProducer(KafkaTemplate<String, String> kafkaTemplate) {
         this.kafkaTemplate = kafkaTemplate;
     }
 
-    /**
-     * Placeholder: Send transaction to Kafka
-     */
-    public void sendTransaction(Object transaction) {
-        // TODO: Implement sending transaction to Kafka
-        // kafkaTemplate.send(TOPIC, transaction);
+    public void sendTransaction(String messageJson) {
+        kafkaTemplate.send(RAW_TOPIC, messageJson);
+        log.debug("Published to {}: {}", RAW_TOPIC, messageJson);
+    }
+
+    public void send(String topic, String messageJson) {
+        kafkaTemplate.send(topic, messageJson);
+        log.debug("Published to {}: {}", topic, messageJson);
     }
 }
