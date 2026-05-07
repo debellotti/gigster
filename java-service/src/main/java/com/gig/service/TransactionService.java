@@ -55,7 +55,7 @@ public class TransactionService {
     public int loadFromCsv(String filePath) throws Exception {
         int count = 0;
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
-            reader.readLine(); // skip header: transaction_id,user_id,amount,currency,transaction_date,status,description
+            reader.readLine(); // skip header: transaction_id,account_id,amount,currency,timestamp,status,description
             String line;
             while ((line = reader.readLine()) != null) {
                 line = line.trim();
@@ -65,10 +65,10 @@ public class TransactionService {
 
                 Map<String, Object> msg = new LinkedHashMap<>();
                 msg.put("transaction_id", f[0].trim());
-                msg.put("user_id", f[1].trim());
+                msg.put("account_id", f[1].trim());
                 msg.put("amount", f[2].trim());
                 msg.put("currency", f[3].trim());
-                msg.put("transaction_date", f[4].trim());
+                msg.put("timestamp", f[4].trim());
                 msg.put("status", f[5].trim());
                 if (f.length > 6) msg.put("description", f[6].trim());
 
@@ -84,10 +84,10 @@ public class TransactionService {
     private Map<String, Object> toKafkaMap(Transaction tx) {
         Map<String, Object> msg = new LinkedHashMap<>();
         msg.put("transaction_id", tx.getTransactionId());
-        msg.put("user_id", tx.getUserId());
+        msg.put("account_id", tx.getAccountId());
         msg.put("amount", tx.getAmount().toPlainString());
         msg.put("currency", tx.getCurrency());
-        msg.put("transaction_date", tx.getTransactionDate().format(DT_FMT));
+        msg.put("timestamp", tx.getTimestamp().format(DT_FMT));
         msg.put("status", tx.getStatus());
         if (tx.getDescription() != null) msg.put("description", tx.getDescription());
         return msg;

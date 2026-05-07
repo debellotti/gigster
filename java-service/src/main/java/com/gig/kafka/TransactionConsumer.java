@@ -26,7 +26,7 @@ public class TransactionConsumer {
     @Autowired
     private ObjectMapper objectMapper;
 
-    @KafkaListener(topics = "transactions-processed", groupId = "gig-consumer-group")
+    @KafkaListener(topics = "transactions-topic", groupId = "gig-consumer-group")
     public void consumeProcessedTransaction(String message) {
         try {
             log.debug("Received message: {}", message);
@@ -65,11 +65,11 @@ public class TransactionConsumer {
 
             Transaction tx = new Transaction();
             tx.setTransactionId(transactionId);
-            tx.setUserId(userId);
+            tx.setAccountId(userId);
             tx.setAmount(amount);
             tx.setCurrency(currency);
             tx.setStatus(status);
-            tx.setTransactionDate(parseTimestamp(timestamp));
+            tx.setTimestamp(parseTimestamp(timestamp));
 
             transactionRepository.save(tx);
             log.info("Saved transaction: {}", transactionId);

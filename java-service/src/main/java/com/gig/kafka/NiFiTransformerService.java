@@ -13,28 +13,14 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
-/**
- * Simulates the Apache NiFi Phase 2 transformation layer.
- *
- * Consumes raw transactions from transactions-topic (CSV field format),
- * persists to transactions_target (simulating NiFi DB write),
- * and republishes to transactions-processed with renamed fields
- * (user_id → account_id, transaction_date → timestamp) for the Java consumer.
- */
 @Component
 public class NiFiTransformerService {
 
     private static final Logger log = LoggerFactory.getLogger(NiFiTransformerService.class);
-    private static final String PROCESSED_TOPIC = "transactions-processed";
 
     @Autowired
     private ObjectMapper objectMapper;
-
-    @Autowired
-    private TransactionProducer producer;
 
     @Autowired
     private TransactionTargetRepository targetRepository;
@@ -45,10 +31,10 @@ public class NiFiTransformerService {
             JsonNode node = objectMapper.readTree(message);
 
             String transactionId = text(node, "transaction_id");
-            String userId = text(node, "user_id");
+            String accountId = text(node, "account_id");
             String amountStr = text(node, "amount");
             String currency = text(node, "currency");
-            String transactionDate = text(node, "transaction_date");
+            String timestamp = text(node, "timestamp");
             String status = text(node, "status");
             String description = text(node, "description");
 
@@ -57,14 +43,13 @@ public class NiFiTransformerService {
                 return;
             }
 
-            // Write to transactions_target (idempotent)
             if (targetRepository.findByTransactionId(transactionId).isEmpty()) {
                 TransactionTarget target = new TransactionTarget();
                 target.setTransactionId(transactionId);
-                target.setUserId(userId);
+                target.setAccountId(accountId);
                 target.setAmount(new BigDecimal(amountStr));
                 target.setCurrency(currency);
-                target.setTransactionDate(parseDate(transactionDate));
+                target.setTimestamp(parseDate(timestamp));
                 target.setStatus(status);
                 target.setDescription(description);
                 targetRepository.save(target);
