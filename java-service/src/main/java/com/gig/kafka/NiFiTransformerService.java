@@ -71,17 +71,7 @@ public class NiFiTransformerService {
                 log.info("NiFi: saved to transactions_target: {}", transactionId);
             }
 
-            // Transform field names and publish to transactions-processed
-            Map<String, Object> processed = new LinkedHashMap<>();
-            processed.put("transaction_id", transactionId);
-            processed.put("account_id", userId);         // renamed: user_id → account_id
-            processed.put("amount", amountStr);
-            processed.put("currency", currency);
-            processed.put("timestamp", transactionDate);  // renamed: transaction_date → timestamp
-            processed.put("status", status);
-
-            producer.send(PROCESSED_TOPIC, objectMapper.writeValueAsString(processed));
-            log.info("NiFi: forwarded to {}: {}", PROCESSED_TOPIC, transactionId);
+            log.info("NiFi transformer: persisted {} to transactions_target", transactionId);
 
         } catch (Exception e) {
             log.error("NiFi transformer error: {}", e.getMessage(), e);

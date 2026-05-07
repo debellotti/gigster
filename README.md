@@ -8,22 +8,29 @@ A three-phase data migration pipeline that ingests transaction data, processes i
 data/transactions.csv
   → POST /api/transactions/load-csv
   → Kafka: transactions-topic          (raw: user_id, transaction_date)
-  → NiFi Transformer (Phase 2)
-      ├── PostgreSQL: transactions_target
-      └── Kafka: transactions-processed  (renamed: account_id, timestamp)
-            → Java Consumer
-            └── PostgreSQL: transactions_source
+      ├── Apache NiFi (Phase 2)
+      │     ConsumeKafka → JoltTransformJSON → PublishKafka
+      │     (renames user_id→account_id, transaction_date→timestamp)
+      │     → Kafka: transactions-processed
+      │           → Java TransactionConsumer
+      │           └── PostgreSQL: transactions_source
+      └── Java NiFiTransformerService
+            └── PostgreSQL: transactions_target
   → Python reconciliation
 ```
 
 ## Phases
 
 **Phase 1 — Java Service** (`java-service/`)
-Spring Boot service that exposes REST endpoints, reads the CSV file, publishes rows to Kafka, and consumes the processed events to persist them in PostgreSQL.
+Spring Boot service that exposes REST endpoints, reads the CSV file, and publishes each row to `transactions-topic`. It also consumes the processed events from `transactions-processed` to persist them in `transactions_source`.
 
-**Phase 2 — NiFi Transformer** (simulated inside the Java service)
-Consumes raw messages from `transactions-topic`, renames fields (`user_id → account_id`, `transaction_date → timestamp`), writes to `transactions_target`, and republishes to `transactions-processed`.
-> The actual NiFi container is included in docker-compose but the transformation logic is handled by `NiFiTransformerService` inside the Java service.
+**Phase 2 — Apache NiFi** (configured via `scripts/setup-nifi-flow.py`)
+Real NiFi flow with three processors:
+- `ConsumeKafka` — reads from `transactions-topic`
+- `JoltTransformJSON` — renames `user_id → account_id` and `transaction_date → timestamp`
+- `PublishKafka` — publishes to `transactions-processed`
+
+The Java service also runs a `NiFiTransformerService` that reads from `transactions-topic` independently and persists records to `transactions_target`.
 
 **Phase 3 — Python Reconciliation** (`scripts/reconciliation.py`)
 Connects to PostgreSQL and validates that `transactions_source` and `transactions_target` are consistent: record counts, NULL checks, and full cross-table reconciliation by transaction ID.
@@ -54,7 +61,27 @@ docker exec gig-postgres pg_isready -U gig_user -d gig_db
 docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
 ```
 
-### Step 2 — Build and start the Java service
+### Step 2 — Start NiFi and configure the flow
+
+```bash
+docker-compose up -d nifi
+```
+
+NiFi takes about 60-90 seconds to fully start. Once it's up, run the setup script to create the transformation flow:
+
+```bash
+pip install requests   # first time only
+python3 scripts/setup-nifi-flow.py
+```
+
+The script creates three processors in NiFi via the REST API:
+`ConsumeKafka → JoltTransformJSON → PublishKafka`
+
+You can view the flow in the NiFi UI at `https://localhost:8161/nifi` (username: `admin`, password: `admin123456789`). Accept the self-signed certificate warning.
+
+> **Note:** The NiFi credentials are fixed via `bin/nifi.sh set-single-user-credentials` on first setup. If you reset the `nifi/conf/` directory, run that command again before the setup script.
+
+### Step 3 — Build and start the Java service
 
 ```bash
 docker-compose up -d --build java-service
@@ -77,7 +104,7 @@ curl http://localhost:8080/api/transactions/health
 # Expected: {"status":"running"}
 ```
 
-### Step 3 — Trigger the pipeline
+### Step 4 — Trigger the pipeline
 
 ```bash
 curl -X POST http://localhost:8080/api/transactions/load-csv
@@ -86,7 +113,7 @@ curl -X POST http://localhost:8080/api/transactions/load-csv
 
 This reads `data/transactions.csv` and publishes each row to Kafka. The transformer picks them up, writes to `transactions_target`, and forwards to `transactions-processed`. The consumer then saves them to `transactions_source`. The whole flow completes in a few seconds.
 
-### Step 4 — Verify via REST API
+### Step 5 — Verify via REST API
 
 ```bash
 # All transactions in the source table
@@ -102,7 +129,7 @@ You can also run the full API verification script (requires `jq`):
 ./scripts/verify-api.sh
 ```
 
-### Step 5 — Run Phase 3 reconciliation
+### Step 6 — Run Phase 3 reconciliation
 
 ```bash
 pip install psycopg2-binary   # first time only
@@ -131,24 +158,27 @@ After the first run, use this sequence to wipe everything and go through the pip
 # 1. Tear down all containers and delete DB volumes
 docker-compose down -v
 
-# 2. Start infrastructure again
-docker-compose up -d postgres kafka zookeeper
+# 2. Start infrastructure and NiFi
+docker-compose up -d postgres kafka zookeeper nifi
 
-# 3. Wait ~15s, then build and start the Java service
-#    (subsequent builds are faster since Docker caches the Maven layer)
+# 3. Wait ~15s for infra, then build and start the Java service
 docker-compose up -d --build java-service
 
-# 4. Wait until the service is up
+# 4. Wait for NiFi to be ready, then set up the flow
+#    (NiFi takes ~60-90s to start)
+python3 scripts/setup-nifi-flow.py
+
+# 5. Wait until the Java service is up
 until curl -s http://localhost:8080/api/transactions/health | grep -q running; do sleep 3; done
 
-# 5. Trigger the pipeline
+# 6. Trigger the pipeline
 curl -X POST http://localhost:8080/api/transactions/load-csv
 
-# 6. Wait a few seconds, then verify
+# 7. Wait a few seconds, then verify
 sleep 5
 curl http://localhost:8080/api/transactions | jq .
 
-# 7. Run reconciliation
+# 8. Run reconciliation
 python3 scripts/reconciliation.py
 ```
 

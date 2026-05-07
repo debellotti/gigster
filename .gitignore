@@ -1,0 +1,10 @@
+# NiFi runtime data (not needed in git)
+nifi/database_repository/
+nifi/flowfile_repository/
+nifi/content_repository/
+nifi/provenance_repository/
+nifi/state/
+nifi/conf/archive/
+
+# Misc
+data/transactions_2.csv
