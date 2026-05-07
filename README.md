@@ -1,163 +1,188 @@
 # Gig Migration Challenge
 
-A three-phase data migration pipeline that ingests transaction data, processes it through Apache NiFi, validates results, and ensures data integrity.
+A three-phase data migration pipeline that ingests transaction data, processes it through a transformation layer, validates results, and ensures data integrity.
 
-## 🎯 Project Overview
-
-This project demonstrates a complete data migration workflow using modern cloud-native technologies. Transaction data flows through multiple processing stages with validation at each phase.
-
-### Three-Phase Architecture
+## Architecture
 
 ```
-CSV Data → Phase 1 (Java/Kafka) → Phase 2 (NiFi) → Phase 3 (Reconciliation)
+data/transactions.csv
+  → POST /api/transactions/load-csv
+  → Kafka: transactions-topic          (raw: user_id, transaction_date)
+  → NiFi Transformer (Phase 2)
+      ├── PostgreSQL: transactions_target
+      └── Kafka: transactions-processed  (renamed: account_id, timestamp)
+            → Java Consumer
+            └── PostgreSQL: transactions_source
+  → Python reconciliation
 ```
 
-## 📋 Phases
+## Phases
 
-### Phase 1: Java Service (Ingestion & Initial Processing)
-- **Framework**: Spring Boot
-- **Responsibilities**:
-  - REST API endpoints for transaction processing
-  - Kafka producer/consumer for event streaming
-  - Database integration with PostgreSQL
-  - Initial data validation and transformation
-- **Location**: `java-service/`
+**Phase 1 — Java Service** (`java-service/`)
+Spring Boot service that exposes REST endpoints, reads the CSV file, publishes rows to Kafka, and consumes the processed events to persist them in PostgreSQL.
 
-### Phase 2: Apache NiFi (Orchestration)
-- **Tool**: Apache NiFi
-- **Responsibilities**:
-  - Data flow orchestration and routing
-  - Complex transformation logic
-  - Multi-stage processing pipeline
-  - Data quality checks
-- **Location**: `nifi/flow/migration-flow.xml`
+**Phase 2 — NiFi Transformer** (simulated inside the Java service)
+Consumes raw messages from `transactions-topic`, renames fields (`user_id → account_id`, `transaction_date → timestamp`), writes to `transactions_target`, and republishes to `transactions-processed`.
+> The actual NiFi container is included in docker-compose but the transformation logic is handled by `NiFiTransformerService` inside the Java service.
 
-### Phase 3: Python Reconciliation
-- **Language**: Python
-- **Responsibilities**:
-  - Post-migration data validation
-  - Reconciliation between source and target
-  - Data completeness and accuracy checks
-- **Location**: `scripts/reconciliation.py`
+**Phase 3 — Python Reconciliation** (`scripts/reconciliation.py`)
+Connects to PostgreSQL and validates that `transactions_source` and `transactions_target` are consistent: record counts, NULL checks, and full cross-table reconciliation by transaction ID.
 
-## 🚀 Quick Start
+---
+
+## Running from scratch
 
 ### Prerequisites
+
 - Docker & Docker Compose
-- 4GB+ available RAM
-- Ports 8080, 5432, 9092 available
+- Python 3 + `psycopg2-binary` (for reconciliation only)
+- Ports `8080`, `5432`, `9092`, `2181` free
 
-### Running the Project
+### Step 1 — Start the infrastructure
 
 ```bash
-# Start all services with one command
-docker-compose up
-
-# The services will be available at:
-# - Java Service: http://localhost:8080
-# - PostgreSQL: localhost:5432
-# - Kafka: localhost:9092
-# - NiFi: http://localhost:8161
+docker-compose up -d postgres kafka zookeeper
 ```
 
-### Testing the APIs
+This starts PostgreSQL (with the schema from `db/init.sql`) and the Kafka broker. Wait about 15 seconds for them to be fully ready.
 
 ```bash
-# Run the verification script
+# Verify postgres is accepting connections
+docker exec gig-postgres pg_isready -U gig_user -d gig_db
+
+# Verify kafka is up (should list __consumer_offsets)
+docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+### Step 2 — Build and start the Java service
+
+```bash
+docker-compose up -d --build java-service
+```
+
+The first build takes 2-3 minutes because Maven downloads dependencies. Subsequent builds are faster.
+
+Wait for the service to finish starting:
+
+```bash
+docker-compose logs -f java-service
+# Wait until you see: "Started GigMigrationApplication"
+# Then Ctrl+C to exit the log tail
+```
+
+Or just poll the health endpoint:
+
+```bash
+curl http://localhost:8080/api/transactions/health
+# Expected: {"status":"running"}
+```
+
+### Step 3 — Trigger the pipeline
+
+```bash
+curl -X POST http://localhost:8080/api/transactions/load-csv
+# Expected: {"message":"CSV loading triggered","rows":10}
+```
+
+This reads `data/transactions.csv` and publishes each row to Kafka. The transformer picks them up, writes to `transactions_target`, and forwards to `transactions-processed`. The consumer then saves them to `transactions_source`. The whole flow completes in a few seconds.
+
+### Step 4 — Verify via REST API
+
+```bash
+# All transactions in the source table
+curl http://localhost:8080/api/transactions | jq .
+
+# Single transaction
+curl http://localhost:8080/api/transactions/TXN001 | jq .
+```
+
+You can also run the full API verification script (requires `jq`):
+
+```bash
 ./scripts/verify-api.sh
 ```
 
-## 📁 Project Structure
+### Step 5 — Run Phase 3 reconciliation
+
+```bash
+pip install psycopg2-binary   # first time only
+python3 scripts/reconciliation.py
+```
+
+Expected output:
 
 ```
-gig-migration-challenge/
-├── docker-compose.yml          # Orchestration config
-├── README.md                   # This file
-├── java-service/               # Spring Boot application
+Starting Phase 3 Reconciliation...
+Running checks:
+  [PASS] Record count — source: 10, target: 10
+  [PASS] Data integrity — 0 issue(s)
+  [PASS] Reconciliation — 0 mismatches, 0 missing in target, 0 missing in source
+
+Overall result : PASS
+```
+
+---
+
+## Reset / clean start
+
+To wipe everything and start fresh (drops DB volumes):
+
+```bash
+docker-compose down -v
+```
+
+Then repeat from Step 1.
+
+---
+
+## Useful commands
+
+```bash
+# Follow Java service logs
+docker-compose logs -f java-service
+
+# Check record counts directly in Postgres
+docker exec gig-postgres psql -U gig_user -d gig_db \
+  -c "SELECT COUNT(*) FROM gig.transactions_source;"
+docker exec gig-postgres psql -U gig_user -d gig_db \
+  -c "SELECT COUNT(*) FROM gig.transactions_target;"
+
+# List Kafka topics
+docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+---
+
+## Project structure
+
+```
+├── docker-compose.yml
+├── data/
+│   └── transactions.csv          # 10 sample transactions
+├── db/
+│   └── init.sql                  # schema: transactions_source + transactions_target
+├── java-service/
 │   ├── Dockerfile
-│   ├── pom.xml                 # Maven dependencies
-│   └── src/
-├── nifi/                       # NiFi orchestration
-│   └── flow/
-│       └── migration-flow.xml
-├── data/                       # Source data
-│   └── transactions.csv
-├── db/                         # Database setup
-│   └── init.sql                # PostgreSQL schema
-├── scripts/                    # Utilities
-│   ├── verify-api.sh
-│   └── reconciliation.py
-└── docs/
-    └── architecture.png        # System diagram
+│   ├── pom.xml
+│   └── src/main/java/com/gig/
+│       ├── controller/           # REST endpoints
+│       ├── kafka/                # producer, consumer, NiFi transformer
+│       ├── model/                # Transaction, TransactionTarget
+│       ├── repository/           # JPA repos
+│       └── service/              # business logic, CSV loading
+├── scripts/
+│   ├── reconciliation.py         # Phase 3 validation
+│   └── verify-api.sh             # API smoke tests
+└── nifi/
+    └── flow/migration-flow.xml   # placeholder for a full NiFi flow
 ```
 
-## 🛠️ Technology Stack
+## Tech stack
 
-| Component | Technology | Purpose |
-|-----------|-----------|---------|
-| Ingestion | Java/Spring Boot | REST APIs & Kafka integration |
-| Messaging | Apache Kafka | Event streaming & decoupling |
-| Orchestration | Apache NiFi | Data flow management |
-| Database | PostgreSQL | Persistent data storage |
-| Validation | Python | Reconciliation & QA |
-| Infrastructure | Docker | Containerization & deployment |
-
-## 📊 Data Flow
-
-1. **Source**: Transaction CSV file loaded into PostgreSQL
-2. **Phase 1**: Java service reads data, publishes to Kafka topics
-3. **Phase 2**: NiFi consumes Kafka events, applies transformations
-4. **Target**: Processed data written to final tables
-5. **Phase 3**: Python script validates data integrity
-
-## 🧪 Testing
-
-### Verify API Endpoints
-```bash
-./scripts/verify-api.sh
-```
-
-### Run Reconciliation
-```bash
-python scripts/reconciliation.py
-```
-
-## 📝 Configuration
-
-### Application Properties
-- Java service config: `java-service/src/main/resources/application.yml`
-- Database init: `db/init.sql`
-- Docker services: `docker-compose.yml`
-
-## 🔍 Monitoring
-
-- **Java Service Logs**: `docker-compose logs java-service`
-- **NiFi UI**: Open http://localhost:8161
-- **PostgreSQL**: Connect via any SQL client at localhost:5432
-
-## 📖 Documentation
-
-- Architecture diagram: `docs/architecture.png`
-- API verification: `scripts/verify-api.sh` (includes curl examples)
-- Reconciliation logic: `scripts/reconciliation.py` (inline comments)
-
-## ✅ Success Criteria
-
-- [ ] Docker Compose starts all services successfully
-- [ ] Java service API responds to requests
-- [ ] NiFi flow processes data without errors
-- [ ] PostgreSQL contains transformed data
-- [ ] Reconciliation script validates 100% data integrity
-- [ ] All test scripts pass
-
-## 🤝 Contributing
-
-Please ensure:
-1. Docker Compose can start cleanly
-2. All scripts are executable
-3. Documentation is up to date
-4. Data validation passes
-
-## 📄 License
-
-This project is part of the Gig Migration Challenge.
+| Component | Technology |
+|-----------|-----------|
+| REST API + pipeline | Java 17 / Spring Boot 3 |
+| Messaging | Apache Kafka |
+| Database | PostgreSQL 15 |
+| Validation | Python 3 |
+| Infrastructure | Docker Compose |
