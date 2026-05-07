@@ -13,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 @Component
 public class NiFiTransformerService {
@@ -43,19 +44,27 @@ public class NiFiTransformerService {
                 return;
             }
 
-            if (targetRepository.findByTransactionId(transactionId).isEmpty()) {
-                TransactionTarget target = new TransactionTarget();
-                target.setTransactionId(transactionId);
-                target.setAccountId(accountId);
-                target.setAmount(new BigDecimal(amountStr));
-                target.setCurrency(currency);
-                target.setTimestamp(parseDate(timestamp));
-                target.setStatus(status);
-                target.setDescription(description);
-                targetRepository.save(target);
-                log.info("NiFi: saved to transactions_target: {}", transactionId);
+            BigDecimal amount = new BigDecimal(amountStr);
+
+            Optional<TransactionTarget> existing = targetRepository.findByTransactionId(transactionId);
+            if (existing.isPresent()) {
+                if (amount.compareTo(existing.get().getAmount()) <= 0) {
+                    log.info("Skipping duplicate {} — stored amount {} >= incoming {}", transactionId, existing.get().getAmount(), amount);
+                    return;
+                }
+                targetRepository.delete(existing.get());
+                log.info("Replacing duplicate {} with higher amount {}", transactionId, amount);
             }
 
+            TransactionTarget target = new TransactionTarget();
+            target.setTransactionId(transactionId);
+            target.setAccountId(accountId);
+            target.setAmount(amount);
+            target.setCurrency(currency);
+            target.setTimestamp(parseDate(timestamp));
+            target.setStatus(status);
+            target.setDescription(description);
+            targetRepository.save(target);
             log.info("NiFi transformer: persisted {} to transactions_target", transactionId);
 
         } catch (Exception e) {
