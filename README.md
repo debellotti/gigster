@@ -12,8 +12,6 @@ data/transactions.csv
                                 ├── malformed → LogMessage (bulletin)
                                 └── valid → ReplaceText (CSV→JSON)
                                               → Kafka: transactions-topic
-                                                    ├── NiFiTransformerService
-                                                    │     └── PostgreSQL: transactions_target
                                                     └── TransactionConsumer
                                                           └── PostgreSQL: transactions_source
   └── Python reconciliation (Phase 3)
@@ -220,11 +218,9 @@ python3 scripts/reconciliation.py
 # Follow Java service logs
 docker-compose logs -f java-service
 
-# Check record counts in Postgres
+# Check record count in Postgres
 docker exec gig-postgres psql -U gig_user -d gig_db \
   -c "SELECT COUNT(*) FROM gig.transactions_source;"
-docker exec gig-postgres psql -U gig_user -d gig_db \
-  -c "SELECT COUNT(*) FROM gig.transactions_target;"
 
 # List Kafka topics
 docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
@@ -239,14 +235,14 @@ docker exec gig-kafka kafka-topics --bootstrap-server localhost:9092 --list
 ├── data/
 │   └── transactions.csv              # source dataset (10 rows, intentionally dirty)
 ├── db/
-│   └── init.sql                      # schema: accounts, transactions_source, transactions_target
+│   └── init.sql                      # schema: accounts, transactions_source
 ├── java-service/
 │   ├── Dockerfile
 │   ├── pom.xml
 │   └── src/main/java/com/gig/
 │       ├── controller/               # AccountController, TransactionController
-│       ├── kafka/                    # TransactionProducer, TransactionConsumer, NiFiTransformerService
-│       ├── model/                    # Account, Transaction, TransactionTarget
+│       ├── kafka/                    # TransactionProducer, TransactionConsumer
+│       ├── model/                    # Account, Transaction
 │       ├── repository/               # JPA repos
 │       └── service/                  # AccountService, TransactionService
 ├── scripts/
