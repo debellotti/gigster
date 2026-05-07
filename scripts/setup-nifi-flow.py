@@ -104,8 +104,13 @@ def clear_existing_flow(token, root_id):
 
     conns = requests.get(f"{NIFI_BASE}/process-groups/{root_id}/connections", headers=h(token), verify=False).json()
     for conn in conns.get("connections", []):
+        cid = conn["id"]
+        queued = conn.get("status", {}).get("aggregateSnapshot", {}).get("flowFilesQueued", 0)
+        if queued > 0:
+            requests.post(f"{NIFI_BASE}/flowfile-queues/{cid}/drop-requests", headers=h(token), verify=False)
+            time.sleep(2)
         requests.delete(
-            f"{NIFI_BASE}/connections/{conn['id']}?version={conn['revision']['version']}",
+            f"{NIFI_BASE}/connections/{cid}?version={conn['revision']['version']}",
             headers=h(token), verify=False
         )
 
