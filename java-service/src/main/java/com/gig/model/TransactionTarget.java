@@ -15,8 +15,8 @@ public class TransactionTarget {
     @Column(nullable = false, unique = true)
     private String transactionId;
 
-    @Column(nullable = false)
-    private String userId;
+    @Column(name = "account_id", nullable = false)
+    private String accountId;
 
     @Column(nullable = false)
     private BigDecimal amount;
@@ -24,8 +24,8 @@ public class TransactionTarget {
     @Column(nullable = false)
     private String currency;
 
-    @Column(nullable = false)
-    private LocalDateTime transactionDate;
+    @Column(name = "timestamp", nullable = false)
+    private LocalDateTime timestamp;
 
     @Column(nullable = false)
     private String status;
@@ -44,10 +44,10 @@ public class TransactionTarget {
 
     public Long getId() { return id; }
     public String getTransactionId() { return transactionId; }
-    public String getUserId() { return userId; }
+    public String getAccountId() { return accountId; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
-    public LocalDateTime getTransactionDate() { return transactionDate; }
+    public LocalDateTime getTimestamp() { return timestamp; }
     public String getStatus() { return status; }
     public String getDescription() { return description; }
     public String getProcessedBy() { return processedBy; }
@@ -55,10 +55,10 @@ public class TransactionTarget {
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
     public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public void setAccountId(String accountId) { this.accountId = accountId; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public void setCurrency(String currency) { this.currency = currency; }
-    public void setTransactionDate(LocalDateTime transactionDate) { this.transactionDate = transactionDate; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
     public void setStatus(String status) { this.status = status; }
     public void setDescription(String description) { this.description = description; }
     public void setProcessedBy(String processedBy) { this.processedBy = processedBy; }

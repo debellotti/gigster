@@ -4,9 +4,6 @@ import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * Transaction Entity Model
- */
 @Entity
 @Table(name = "transactions_source", schema = "gig")
 public class Transaction {
@@ -18,8 +15,8 @@ public class Transaction {
     @Column(nullable = false, unique = true)
     private String transactionId;
 
-    @Column(nullable = false)
-    private String userId;
+    @Column(name = "account_id", nullable = false)
+    private String accountId;
 
     @Column(nullable = false)
     private BigDecimal amount;
@@ -27,8 +24,8 @@ public class Transaction {
     @Column(nullable = false)
     private String currency;
 
-    @Column(nullable = false)
-    private LocalDateTime transactionDate;
+    @Column(name = "timestamp", nullable = false)
+    private LocalDateTime timestamp;
 
     @Column(nullable = false)
     private String status;
@@ -40,38 +37,35 @@ public class Transaction {
 
     private LocalDateTime updatedAt;
 
-    // Constructors
     public Transaction() {}
 
-    public Transaction(String transactionId, String userId, BigDecimal amount,
-                       String currency, LocalDateTime transactionDate, String status) {
+    public Transaction(String transactionId, String accountId, BigDecimal amount,
+                       String currency, LocalDateTime timestamp, String status) {
         this.transactionId = transactionId;
-        this.userId = userId;
+        this.accountId = accountId;
         this.amount = amount;
         this.currency = currency;
-        this.transactionDate = transactionDate;
+        this.timestamp = timestamp;
         this.status = status;
     }
 
-    // Getters
     public Long getId() { return id; }
     public String getTransactionId() { return transactionId; }
-    public String getUserId() { return userId; }
+    public String getAccountId() { return accountId; }
     public BigDecimal getAmount() { return amount; }
     public String getCurrency() { return currency; }
-    public LocalDateTime getTransactionDate() { return transactionDate; }
+    public LocalDateTime getTimestamp() { return timestamp; }
     public String getStatus() { return status; }
     public String getDescription() { return description; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
-    // Setters
     public void setId(Long id) { this.id = id; }
     public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public void setAccountId(String accountId) { this.accountId = accountId; }
     public void setAmount(BigDecimal amount) { this.amount = amount; }
     public void setCurrency(String currency) { this.currency = currency; }
-    public void setTransactionDate(LocalDateTime transactionDate) { this.transactionDate = transactionDate; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
     public void setStatus(String status) { this.status = status; }
     public void setDescription(String description) { this.description = description; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
