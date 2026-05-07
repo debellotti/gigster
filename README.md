@@ -42,15 +42,31 @@ Spring Boot service that manages financial accounts and persists transaction his
 
 ### Phase 2 — Apache NiFi (`scripts/setup-nifi-flow.py`)
 
-Real NiFi flow configured programmatically via the REST API:
+Real NiFi flow configured programmatically via the REST API (11 processors):
 
-1. **GetFile** — reads `transactions.csv` from `/app/data/`
+1. **GetFile** — reads `transactions.csv` from `/app/data/` (not `GenerateFlowFile`)
 2. **SplitText** — one flowfile per CSV line
 3. **RouteOnContent** — skips the header line
 4. **RouteOnContent** — detects malformed rows (empty fields, `INVALID_AMT`, `ERR` currency)
 5. **ReplaceText** — converts a valid CSV line to a JSON object
-6. **PublishKafka** — publishes to `transactions-topic`
-7. **LogMessage** — logs skipped/malformed rows to the NiFi bulletin board
+6. **UpdateAttribute + RouteOnAttribute** — retry loop for ReplaceText failures (up to 3 attempts before LogMessage)
+7. **PublishKafka** — publishes to `transactions-topic`
+8. **UpdateAttribute + RouteOnAttribute** — retry loop for PublishKafka failures (up to 3 attempts before LogMessage)
+9. **LogMessage** — logs all skipped/malformed/failed rows to the NiFi bulletin board
+
+Error-handling topology:
+
+```
+ReplaceText  --(failure)--> UpdateAttribute (transform.retry.count+1)
+                                 --> RouteOnAttribute
+                                       ├── retry  (count < 3) --> ReplaceText
+                                       └── unmatched (count ≥ 3) --> LogMessage
+
+PublishKafka --(failure)--> UpdateAttribute (kafka.retry.count+1)
+                                 --> RouteOnAttribute
+                                       ├── retry  (count < 3) --> PublishKafka
+                                       └── unmatched (count ≥ 3) --> LogMessage
+```
 
 ### Phase 3 — Reconciliation (`scripts/reconciliation.py`)
 
@@ -85,7 +101,7 @@ The CSV contains two intentionally broken rows:
 
 **Strategy: detect early in NiFi, log and discard — never send to Kafka.**
 
-NiFi's `RouteOnContent` processor matches against a regex (`INVALID_AMT|^,|,,|,ERR,`) before any downstream processing. Malformed rows are routed to a `LogMessage` processor which writes a warning to NiFi's bulletin board. They never reach Kafka or the database. The reconciliation script tracks them as "Failed / Skipped" by comparing CSV rows against DB records.
+NiFi's `RouteOnContent` processor matches against a regex (`INVALID_AMT|^,|,,|,ERR,`) before any downstream processing. Malformed rows are routed directly to `LogMessage`. For rows that pass validation but fail transformation or publishing, the retry loops attempt recovery up to 3 times before routing to `LogMessage` as permanent failure. No malformed or unrecoverable row ever reaches the database.
 
 ### Currency and Amount Storage
 
