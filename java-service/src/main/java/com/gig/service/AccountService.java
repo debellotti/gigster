@@ -18,6 +18,9 @@ public class AccountService {
     private AccountRepository accountRepository;
 
     public Account createAccount(Account account) {
+        if (accountRepository.findByAccountId(account.getAccountId()).isPresent()) {
+            throw new IllegalArgumentException("Account already exists: " + account.getAccountId());
+        }
         return accountRepository.save(account);
     }
 

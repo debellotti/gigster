@@ -30,8 +30,12 @@ public class AccountController {
     }
 
     @PostMapping
-    public Account createAccount(@RequestBody Account account) {
-        return accountService.createAccount(account);
+    public ResponseEntity<Object> createAccount(@RequestBody Account account) {
+        try {
+            return ResponseEntity.ok(accountService.createAccount(account));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
+        }
     }
 
     @PostMapping("/{accountId}/transfers")
